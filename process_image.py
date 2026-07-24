@@ -17,6 +17,7 @@ from pipelines.seed_mask import create_seed_mask
 from pipelines.color_correction_v2 import apply_color_correction
 from pipelines.size_marker_metadata import size_marker
 from pipelines.shape_analysis import calculate_size_shape
+from pipelines.color_analysis import calculate_color_metrics
 from pipelines.create_chip_mask_v3 import create_chip_mask, REFERENCE_RGB
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,92 @@ TRAITS_MAP = {
         "obj_solidity": ("Object Solidity|IMGSTAT:0000011", None, 4),
         "obj_diam_max_ellipse": ("Object Maximum Diameter From Fitted Ellipse|IMGSTAT:0000008", "mm", 2),
         "obj_diam_min_ellipse": ("Object Minimum Diameter From Fitted Ellipse|IMGSTAT:0000009", "mm", 2),
+    }
+
+# --------------------------------------------------------------------
+# Internal metric keys from pipelines/color_analysis.py
+# -> (Public trait key, unit, rounding digits)
+#
+# Scale conventions (see pipelines/color_analysis.py docstring):
+#   - Hue: degrees [0, 360), unit "deg"
+#   - Saturation, Value, Red, Green, Blue: OpenCV native uint8 [0, 255], unit None
+#   - Lightness, a*, b*: OpenCV uint8 LAB encoding [0, 255] (128 = neutral), unit None
+# --------------------------------------------------------------------
+
+COLOR_TRAITS_MAP = {
+        # internal_key: (public_trait_key, unit, ndigits)
+
+        # --- HSV: Hue (circular) ---
+        "obj_hue_circmean": ("Object Hue Circular mean (deg)|IMGSTAT:0000087", "deg", 2),
+        "obj_hue_circstd":  ("Object Hue Circular Standard Deviation (deg)|IMGSTAT:0000089", "deg", 2),
+        "obj_hue_median":   ("Object Hue Median (deg)|IMGSTAT:0000091", "deg", 2),
+        "obj_hue_mode":     ("Object Hue Mode|IMGSTAT:0000144", "deg", 2),
+        "obj_hue_min":      ("Object Hue Minimum|IMGSTAT:0000147", "deg", 2),
+        "obj_hue_max":      ("Object Hue Maximum|IMGSTAT:0000150", "deg", 2),
+
+        # --- HSV: Saturation ---
+        "obj_sat_mean":   ("Object Saturation Arithmetic Mean|IMGSTAT:0000093", None, 2),
+        "obj_sat_std":    ("Object Saturation Standard Deviation|IMGSTAT:0000095", None, 2),
+        "obj_sat_median": ("Object Saturation Median|IMGSTAT:0000097", None, 2),
+        "obj_sat_mode":   ("Object Saturation Mode|IMGSTAT:0000145", None, 2),
+        "obj_sat_min":    ("Object Saturation Minimum|IMGSTAT:0000148", None, 2),
+        "obj_sat_max":    ("Object Saturation Maximum|IMGSTAT:0000151", None, 2),
+
+        # --- HSV: Value ---
+        "obj_val_mean":   ("Object Value Arithmetic Mean|IMGSTAT:0000099", None, 2),
+        "obj_val_std":    ("Object Value Standard Deviation|IMGSTAT:0000101", None, 2),
+        "obj_val_median": ("Object Value Median|IMGSTAT:0000103", None, 2),
+        "obj_val_mode":   ("Object Value Mode|IMGSTAT:0000146", None, 2),
+        "obj_val_min":    ("Object Value Minimum|IMGSTAT:0000149", None, 2),
+        "obj_val_max":    ("Object Value Maximum|IMGSTAT:0000152", None, 2),
+
+        # --- RGB: Red ---
+        "obj_R_mean":   ("Object Red Arithmetic Mean|IMGSTAT:0000108", None, 2),
+        "obj_R_median": ("Object Red Median|IMGSTAT:0000114", None, 2),
+        "obj_R_mode":   ("Object Red Mode|IMGSTAT:0000120", None, 2),
+        "obj_R_min":    ("Object Red Minimum|IMGSTAT:0000126", None, 2),
+        "obj_R_max":    ("Object Red Maximum|IMGSTAT:0000132", None, 2),
+        "obj_R_std":    ("Object Red Standard Deviation|IMGSTAT:0000138", None, 2),
+
+        # --- RGB: Green ---
+        "obj_G_mean":   ("Object Green Arithmetic Mean|IMGSTAT:0000109", None, 2),
+        "obj_G_median": ("Object Green Median|IMGSTAT:0000115", None, 2),
+        "obj_G_mode":   ("Object Green Mode|IMGSTAT:0000121", None, 2),
+        "obj_G_min":    ("Object Green Minimum|IMGSTAT:0000127", None, 2),
+        "obj_G_max":    ("Object Green Maximum|IMGSTAT:0000133", None, 2),
+        "obj_G_std":    ("Object Green Standard Deviation|IMGSTAT:0000139", None, 2),
+
+        # --- RGB: Blue ---
+        "obj_B_mean":   ("Object Blue Arithmetic Mean|IMGSTAT:0000110", None, 2),
+        "obj_B_median": ("Object Blue Median|IMGSTAT:0000116", None, 2),
+        "obj_B_mode":   ("Object Blue Mode|IMGSTAT:0000122", None, 2),
+        "obj_B_min":    ("Object Blue Minimum|IMGSTAT:0000128", None, 2),
+        "obj_B_max":    ("Object Blue Maximum|IMGSTAT:0000134", None, 2),
+        "obj_B_std":    ("Object Blue Standard Deviation|IMGSTAT:0000140", None, 2),
+
+        # --- LAB: Lightness ---
+        "obj_L_mean":   ("Object Lightness Arithmetic Mean|IMGSTAT:0000111", None, 2),
+        "obj_L_median": ("Object Lightness Median|IMGSTAT:0000117", None, 2),
+        "obj_L_mode":   ("Object Lightness Mode|IMGSTAT:0000123", None, 2),
+        "obj_L_min":    ("Object Lightness Minimum|IMGSTAT:0000129", None, 2),
+        "obj_L_max":    ("Object Lightness Maximum|IMGSTAT:0000135", None, 2),
+        "obj_L_std":    ("Object Lightness Standard Deviation|IMGSTAT:0000141", None, 2),
+
+        # --- LAB: a* (red-green) ---
+        "obj_a_mean":   ("Object Red-Green (a*) Arithmetic Mean|IMGSTAT:0000112", None, 2),
+        "obj_a_median": ("Object Red-Green (a*) Median|IMGSTAT:0000118", None, 2),
+        "obj_a_mode":   ("Object Red-Green (a*) Mode|IMGSTAT:0000124", None, 2),
+        "obj_a_min":    ("Object Red-Green (a*) Minimum|IMGSTAT:0000130", None, 2),
+        "obj_a_max":    ("Object Red-Green (a*) Maximum|IMGSTAT:0000136", None, 2),
+        "obj_a_std":    ("Object Red-Green (a*) Standard Deviation|IMGSTAT:0000142", None, 2),
+
+        # --- LAB: b* (blue-yellow) ---
+        "obj_b_mean":   ("Object Blue-Yellow (b*) Arithmetic Mean|IMGSTAT:0000113", None, 2),
+        "obj_b_median": ("Object Blue-Yellow (b*) Median|IMGSTAT:0000119", None, 2),
+        "obj_b_mode":   ("Object Blue-Yellow (b*) Mode|IMGSTAT:0000125", None, 2),
+        "obj_b_min":    ("Object Blue-Yellow (b*) Minimum|IMGSTAT:0000131", None, 2),
+        "obj_b_max":    ("Object Blue-Yellow (b*) Maximum|IMGSTAT:0000137", None, 2),
+        "obj_b_std":    ("Object Blue-Yellow (b*) Standard Deviation|IMGSTAT:0000143", None, 2),
     }
 
 def _to_float(x):
@@ -82,7 +169,9 @@ def analyze_image(image_path, marker_diameter_in=DEFAULT_MARKER_DIAMETER_IN):
     Raises exceptions on failure.
     """
     selected_keys = list(TRAITS_MAP.keys())
-    traits_emitted = [TRAITS_MAP[k][0] for k in selected_keys]
+    color_keys = list(COLOR_TRAITS_MAP.keys())
+    traits_emitted = [TRAITS_MAP[k][0] for k in selected_keys] + \
+                      [COLOR_TRAITS_MAP[k][0] for k in color_keys]
 
     # --------------------------------------------------------------------
     # Read image
@@ -139,10 +228,17 @@ def analyze_image(image_path, marker_diameter_in=DEFAULT_MARKER_DIAMETER_IN):
     # Shape analysis (only if calibration present)
     # --------------------------------------------------------------------
     size_data = {}
+    color_data = {}
     overlay_img = labeled_img.copy()
 
     if size_marker_detected:
         size_data, overlay_img = calculate_size_shape(labeled_img, labeled_mask, sm_metadata)
+
+        # ----------------------------------------------------------------
+        # Color analysis — performed on the color-calibrated image
+        # (corrected_img), keyed by the same object labels as size_data.
+        # ----------------------------------------------------------------
+        color_data = calculate_color_metrics(corrected_img, labeled_mask)
 
     # --------------------------------------------------------------------
     # QC flags (image-level)
@@ -164,6 +260,8 @@ def analyze_image(image_path, marker_diameter_in=DEFAULT_MARKER_DIAMETER_IN):
         for idx, (label_id, obj_data) in enumerate(size_data.items(), start=1):
             obj_id = f"obj_{idx:03d}"
             traits_in = (obj_data or {}).get("traits", {})
+            color_obj = color_data.get(label_id, {})
+            color_traits_in = (color_obj or {}).get("traits", {})
             traits_out = {}
 
             for internal_key in selected_keys:
@@ -172,11 +270,20 @@ def analyze_image(image_path, marker_diameter_in=DEFAULT_MARKER_DIAMETER_IN):
                 val = safe_round(raw, ndigits=ndigits) if ndigits is not None else _to_float(raw)
                 traits_out[public_key] = {"value": val, "unit": unit}
 
+            for internal_key in color_keys:
+                public_key, unit, ndigits = COLOR_TRAITS_MAP[internal_key]
+                raw = color_traits_in.get(internal_key, None)
+                val = safe_round(raw, ndigits=ndigits) if ndigits is not None else _to_float(raw)
+                traits_out[public_key] = {"value": val, "unit": unit}
+
+            qc_out = dict((obj_data or {}).get("qc") or {})
+            qc_out.update((color_obj or {}).get("qc") or {})
+
             objects.append({
                 "object_id": obj_id,
                 "source_label": str(label_id),
                 "bbox": (obj_data or {}).get("bbox"),
-                "qc": (obj_data or {}).get("qc"),
+                "qc": qc_out,
                 "traits": traits_out,
             })
 

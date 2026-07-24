@@ -414,6 +414,19 @@ bb-analyze path/to/image.jpg \
 
 Exits `0` on success (prints file paths); exits `1` on failure (prints a JSON error to stdout).
 
+**Batch processing (a directory of images):**
+
+Pass a directory instead of a single file to process every image inside it and merge the results into one combined sidecar:
+
+```bash
+bb-analyze path/to/images_dir --output-dir ./results
+bb-analyze path/to/images_dir --output-dir ./results --format csv
+```
+
+- Scans only the top level of the directory (no recursion) for `.jpg`/`.jpeg`/`.png` files, in sorted filename order.
+- Writes one overlay PNG per image, plus a single merged `batch_metadata_<batch_id>.json` (a `results` array of per-image envelopes plus an `errors` array) or `batch_metadata_<batch_id>.csv` (one row per object across all images, distinguished by an `image_filename` column) — not one sidecar per image.
+- An image that fails to process (unreadable file, wrong format, etc.) is logged as a warning and recorded in `errors`; the rest of the batch still runs. Exit code is `0` if at least one image succeeded, `1` if every image failed or none were found.
+
 ### Python API
 
 `analyze_image` is a pure function — no file I/O or side effects. Use it in notebooks and batch scripts.
